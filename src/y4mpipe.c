@@ -2,6 +2,29 @@
  * @file module.c
  * @brief VLC video filter for accessing external filters via y4m pipes
  * @author Darrell Walisser
+ *
+ * @license
+    The MIT License (MIT)
+
+    Copyright (c) 2016 walisser
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
  */
 
 #include <stdlib.h>
@@ -45,16 +68,16 @@ static struct {
     const char* name;
     vlc_fourcc_t fourcc;
 } sChromaTable[] = {
-    {"420", VLC_CODEC_I420 },
-    {"420", VLC_CODEC_J420 },
-    {"411", VLC_CODEC_I411 },
-    {"422", VLC_CODEC_I422 },
-    {"422", VLC_CODEC_J422 },
-    {"444", VLC_CODEC_I444 },
-    {"444", VLC_CODEC_J444 },
-    {"440", VLC_CODEC_I440 },
-    {"440", VLC_CODEC_J440 },
     {"410", VLC_CODEC_I410 },
+    {"411", VLC_CODEC_I411 },
+    {"420", VLC_CODEC_I420 },
+    {"440", VLC_CODEC_I440 },
+    {"422", VLC_CODEC_I422 },
+    {"444", VLC_CODEC_I444 },
+    {"420jpeg", VLC_CODEC_J420 },
+    {"422jpeg", VLC_CODEC_J422 },
+    {"444jpeg", VLC_CODEC_J444 },
+    {"440jpeg", VLC_CODEC_J440 },
     { NULL, 0 }
 };
 
