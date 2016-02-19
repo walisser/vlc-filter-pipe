@@ -8,6 +8,17 @@ more filtering options such as Vapoursynth scripts and FFmpeg filters. The filte
 be used in "echo" or one-way mode where it doesn't filter the pictures, only sends them to the
 output process.
 
+The way it works is by writing frames to the process stdin, and reading frames back from the process
+stdout. The frames are read/written out as uncompressed YUV4MPEG2 format (Y4M).
+
+# Limitations
+At this time, the filter input/output must have the same chroma/color space and dimensions. The frame
+rate can be changed, however it must be an integer ratio and cannot be decreased. For example, the frame
+rate can be doubled or tripled but cannot be halfed or go from 24ps to 30 fps.
+
+This is still a work in progress and compiles against VLC 3.0 which is currently unstable but maybe finished
+soon.
+
 # Requirements
   * Linux or other UNIX flavor
   * VLC 3.x with chain-static patch
