@@ -601,6 +601,32 @@ static bool startProcess(filter_t* intf)
 }
 
 /**
+ * @brief Block for output when we believe it is imminent
+ * @param intf
+ */
+static void waitForOutput(filter_t* intf)
+{
+    filter_sys_t* sys = intf->p_sys;
+
+    msg_Info(intf, "enter wait for output: buffers:%d:%d:%d",
+        sys->bufferedIn, sys->bufferedOut, sys->minBuffered);
+
+    // there should be output at some point when there is an
+    // extra picture in the input fifo, wait for it to occur
+    // if the process exits during this wait threadExit will be set
+    picture_t* tmp;
+
+    while (NULL == (tmp = picture_fifo_Peek(sys->outputFifo)) && !sys->threadExit)
+        vlc_cond_wait(&sys->outputCond, &sys->outputMutex);
+
+    if (tmp)
+        picture_Release(tmp);
+
+    msg_Info(intf, "exit wait for output: buffers:%d:%d:%d",
+        sys->bufferedIn, sys->bufferedOut, sys->minBuffered);
+}
+
+/**
  * @brief VLC filter callback
  * @return picture(s) containing the filtered frames
  */
@@ -622,7 +648,6 @@ static bool startProcess(filter_t* intf)
 
     // if there was a problem with the subprocess then send back
     // the picture unmodified, at least we won't freeze up vlc
-    // or leak pictures and the playback will continue
     if (sys->startFailed || sys->threadExit)
         goto ECHO_RETURN;
 
@@ -658,7 +683,8 @@ static bool startProcess(filter_t* intf)
     //
     // if the output fifo is empty, and the input fifo is not empty, then
     // probably the subprocess is about to write out a frame and we
-    // can wait for it to arrive
+    // can wait for it to arrive. in practice, most of the time there
+    // is no waiting needed, unless the filter is too slow to keep up.
     //
     bool inputEmpty = true;
     bool outputEmpty = true;
@@ -701,38 +727,20 @@ static bool startProcess(filter_t* intf)
     sys->bufferedOut += sys->bufferRatio;
 
     // handle buffering
-    if (outputEmpty)
+    if (outputEmpty && inputEmpty)
     {
-        if (inputEmpty)
-        {
-            // we haven't supplied enough input, raise the minimum
-            // level of buffer to keep and return
-            sys->minBuffered += sys->bufferRatio;
+        // we haven't supplied enough input, raise the minimum
+        // level of buffer to keep and return
+        sys->minBuffered += sys->bufferRatio;
 
-            msg_Info(intf, "buffer more input: buffers:%d:%d:%d",
-                    sys->bufferedIn, sys->bufferedOut, sys->minBuffered);
-        }
-        else
-        {
-            msg_Info(intf, "enter wait for output: buffers:%d:%d:%d",
+        msg_Info(intf, "buffer more input: buffers:%d:%d:%d",
                 sys->bufferedIn, sys->bufferedOut, sys->minBuffered);
 
-            // there should be output at some point as there is an
-            // extra picture in the input fifo, wait for it to occur
-            // if the process exits during this wait threadExit will be set
-            while (NULL == (tmp = picture_fifo_Peek(sys->outputFifo)) && !sys->threadExit)
-                vlc_cond_wait(&sys->outputCond, &sys->outputMutex);
-
-            if (tmp)
-                picture_Release(tmp);
-
-            msg_Info(intf, "exit wait for output: buffers:%d:%d:%d",
-                sys->bufferedIn, sys->bufferedOut, sys->minBuffered);
-        }
-
-        picture_Release(srcPic);
         goto NULL_RETURN;
     }
+
+    if (outputEmpty)
+        waitForOutput(intf);
 
     // if we don't know what the frame interval is, make it 0 which
     // probably causes the next frames out to drop
@@ -796,15 +804,25 @@ static bool startProcess(filter_t* intf)
             msg_Info(intf, "first output: buffers=%d:%d", sys->bufferedOut, sys->minBuffered);
         }
 
+        sys->numFrames++;
+        sys->bufferedOut--;
+
         // it seems filter_NewPicture is required now however,
         // sometimes it returns null in which case we fall back
         // to using the picture originally allocated
         picture_t* copy = first == NULL ? srcPic : filter_NewPicture(intf);
         if (!copy)
         {
+            picture_Release(pic);
+
+            // throw away frames
+
             // vlc already prints warning for this
             //msg_Err(intf, "filter_NewPicture returns null");
-            break;
+            if (sys->bufferedOut < sys->minBuffered)
+                break;
+            else
+                continue;
         }
         else
         {
@@ -833,8 +851,6 @@ static bool startProcess(filter_t* intf)
             first = pic;
         last = pic;
 
-        sys->numFrames++;
-        sys->bufferedOut--;
 
         // if we read too many frames on this interation, on the next
         // one we might not have any frames available which would be
@@ -845,6 +861,12 @@ static bool startProcess(filter_t* intf)
         // assuming the filter is fast enough to keep up
         if (sys->bufferedOut  < sys->minBuffered)
             break;
+
+        // if there is still some input buffer left, but the fifo is
+        // empty, wait for next frame to arrive. otherwise we can
+        // build too much input buffering
+        if (sys->bufferedIn > 1)
+            waitForOutput(intf);
     }
 
     if (!first)
@@ -852,6 +874,8 @@ static bool startProcess(filter_t* intf)
         // the buffer checks should prevent from getting here, but
         // just in case prevent leaking the input picture
         picture_Release(srcPic);
+
+        sys->minBuffered++;
     }
 
     sys->lastDate = currDate;
@@ -862,6 +886,7 @@ ECHO_RETURN:
     return srcPic;
 NULL_RETURN:
     sys->lastDate = currDate;
+    picture_Release(srcPic);
     //msg_Info(intf, "<<<< filter: NULL");
     return NULL;
 }
@@ -874,25 +899,47 @@ static void y4m_flush(filter_t* intf)
 {
     filter_sys_t* sys = intf->p_sys;
 
-    msg_Info(intf, "flush enter");
-
-    // fixme: this isn't a proper flush as there
-    // could be a frame being written/read that isn't in the fifo
-    // since an incorrect value of bufferedOut results
-    // in a/v sync being off its a top priority to fix this one
-    picture_fifo_Flush(sys->inputFifo, LAST_MDATE, true);
-    picture_fifo_Flush(sys->outputFifo, LAST_MDATE, true);
-
-    msg_Info(intf, "flush, buffers=%d:%d:%d",
+    msg_Info(intf, "flush: enter: buffers=%d:%d:%d",
         sys->bufferedIn, sys->bufferedOut, sys->minBuffered);
 
-    sys->bufferedOut = 0;
-    sys->minBuffered = 0;
-    sys->bufferRatio = 1;
-    sys->gotFirstOutput = false;
+    // flush what we can, there can still be frames outstanding
+    // after the flush so the counts need to be updated
+
+    // block the input thread while flushing its fifo.
+    vlc_mutex_lock(&sys->inputMutex);
+    picture_t* pic;
+    while ((pic = picture_fifo_Pop(sys->inputFifo)))
+    {
+        picture_Release(pic);
+        sys->bufferedIn--;
+        sys->bufferedOut -= sys->bufferRatio;
+    }
+    vlc_mutex_unlock(&sys->inputMutex);
+
+    while ((pic = picture_fifo_Pop(sys->outputFifo)))
+    {
+        picture_Release(pic);
+        sys->bufferedOut--;
+    }
+
+    // check our accounting, if it goes below zero there is race somewhere
+    if (sys->bufferedOut < 0)
+    {
+        msg_Err(intf, "flush: race condition on output count");
+        sys->bufferedOut = 0;
+    }
+
+    if (sys->bufferedIn < 0)
+    {
+        msg_Err(intf, "flush: race condition on input count");
+        sys->bufferedIn = 0;
+    }
+
+    sys->minBuffered = sys->bufferedOut;
     sys->lastDate = 0;
 
-    msg_Info(intf, "flush exit");
+    msg_Info(intf, "flush: exit:  buffers=%d:%d:%d",
+        sys->bufferedIn, sys->bufferedOut, sys->minBuffered);
 }
 
 /**
@@ -978,6 +1025,9 @@ static void y4m_close(vlc_object_t* obj)
     // output should be dead if input is
     if (sys->outputThread)
         vlc_join(sys->outputThread, NULL);
+
+    picture_fifo_Flush(sys->inputFifo, LAST_MDATE, true);
+    picture_fifo_Flush(sys->outputFifo, LAST_MDATE, true);
 
     picture_fifo_Delete(sys->inputFifo);
     picture_fifo_Delete(sys->outputFifo);
