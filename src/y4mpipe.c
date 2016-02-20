@@ -6,7 +6,7 @@
  * @license
     The MIT License (MIT)
 
-    Copyright (c) 2016 walisser
+    Copyright (c) 2016 Darrell Walisser (my.name@gmail.com)
 
     Permission is hereby granted, free of charge, to any person obtaining a copy
     of this software and associated documentation files (the "Software"), to deal
@@ -243,12 +243,12 @@ static int readY4mHeader(const filter_t* intf, video_format_t* fmt, int fd)
     char y4mChroma[32] = { 0 };
 
     char* ptr = header;
-    while(*ptr)
+    while (*ptr)
     {
-        if(*ptr++ == ' ')
+        if (*ptr++ == ' ')
         {
             char field = *ptr++;
-            switch(field)
+            switch (field)
             {
             case 'W':
                 sscanf(ptr, "%d", &width);
@@ -716,6 +716,8 @@ static void waitForOutput(filter_t* intf)
     vlc_mutex_unlock(&sys->inputMutex);
 
     // if echo is enabled, we're done
+    // todo: there should be a limiter on the input buffering in case
+    // the subprocess can't keep up
     if (sys->echo)
         goto ECHO_RETURN;
 
@@ -807,9 +809,9 @@ static void waitForOutput(filter_t* intf)
         sys->numFrames++;
         sys->bufferedOut--;
 
-        // it seems filter_NewPicture is required now however,
-        // sometimes it returns null in which case we fall back
-        // to using the picture originally allocated
+        // it seems filter_NewPicture is required now. however,
+        // sometimes it returns null in which case it seems like
+        // the best thing to do is dump frames
         picture_t* copy = first == NULL ? srcPic : filter_NewPicture(intf);
         if (!copy)
         {
@@ -852,7 +854,7 @@ static void waitForOutput(filter_t* intf)
         last = pic;
 
 
-        // if we read too many frames on this interation, on the next
+        // if we read too many frames on this iteration, on the next
         // one we might not have any frames available which would be
         // bad as vlc would think our intent was to drop frames
         //
@@ -958,7 +960,7 @@ static int y4m_open(vlc_object_t* obj)
     }
 
     filter_sys_t* sys = malloc(sizeof(*sys));
-    if(unlikely(sys == NULL))
+    if (unlikely(sys == NULL))
         return VLC_ENOMEM;
     intf->p_sys = sys;
     memset(sys, 0, sizeof(*sys));
@@ -967,6 +969,7 @@ static int y4m_open(vlc_object_t* obj)
     if (sys->cmd == NULL)
     {
         msg_Err(intf, "argument parse failed");
+        free(sys);
         return VLC_EGENERIC;
     }
 
@@ -980,7 +983,6 @@ static int y4m_open(vlc_object_t* obj)
 
     sys->inputFifo = picture_fifo_New();
     sys->outputFifo = picture_fifo_New();
-
 
     vlc_cond_init(&sys->inputCond);
     vlc_cond_init(&sys->outputCond);
@@ -1033,7 +1035,10 @@ static void y4m_close(vlc_object_t* obj)
     picture_fifo_Delete(sys->outputFifo);
 
     vlc_cond_destroy(&sys->inputCond);
+    vlc_cond_destroy(&sys->outputCond);
+
     vlc_mutex_destroy(&sys->inputMutex);
+    vlc_mutex_destroy(&sys->outputCond);
 
     free(sys->cmd);
     free(sys);
