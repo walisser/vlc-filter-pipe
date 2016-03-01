@@ -1,5 +1,5 @@
 /**
- * @file module.c
+ * @file y4mpipe.c
  * @brief VLC video filter for accessing external filters via y4m pipes
  * @author Darrell Walisser
  *
@@ -602,7 +602,6 @@ static bool startProcess(filter_t* intf)
 
 /**
  * @brief Block for output when we believe it is imminent
- * @param intf
  */
 static void waitForOutput(filter_t* intf)
 {
@@ -614,6 +613,7 @@ static void waitForOutput(filter_t* intf)
     // there should be output at some point when there is an
     // extra picture in the input fifo, wait for it to occur
     // if the process exits during this wait threadExit will be set
+    // FIXME: a hang is possible in this wait, hard to reproduce
     picture_t* tmp;
 
     while (NULL == (tmp = picture_fifo_Peek(sys->outputFifo)) && !sys->threadExit)
@@ -622,7 +622,7 @@ static void waitForOutput(filter_t* intf)
     if (tmp)
         picture_Release(tmp);
 
-    msg_Info(intf, "exit wait for output: buffers:%d:%d:%d",
+    msg_Info(intf, "exit wait for output:  buffers:%d:%d:%d",
         sys->bufferedIn, sys->bufferedOut, sys->minBuffered);
 }
 
@@ -908,16 +908,17 @@ static void y4m_flush(filter_t* intf)
     // after the flush so the counts need to be updated
 
     // block the input thread while flushing its fifo.
-    vlc_mutex_lock(&sys->inputMutex);
-    picture_t* pic;
-    while ((pic = picture_fifo_Pop(sys->inputFifo)))
-    {
-        picture_Release(pic);
-        sys->bufferedIn--;
-        sys->bufferedOut -= sys->bufferRatio;
-    }
-    vlc_mutex_unlock(&sys->inputMutex);
+//    vlc_mutex_lock(&sys->inputMutex);
+//    picture_t* pic;
+//    while ((pic = picture_fifo_Pop(sys->inputFifo)))
+//    {
+//        picture_Release(pic);
+//        sys->bufferedIn--;
+//        sys->bufferedOut -= sys->bufferRatio;
+//    }
+//    vlc_mutex_unlock(&sys->inputMutex);
 
+    picture_t* pic;
     while ((pic = picture_fifo_Pop(sys->outputFifo)))
     {
         picture_Release(pic);
@@ -1038,7 +1039,7 @@ static void y4m_close(vlc_object_t* obj)
     vlc_cond_destroy(&sys->outputCond);
 
     vlc_mutex_destroy(&sys->inputMutex);
-    vlc_mutex_destroy(&sys->outputCond);
+    vlc_mutex_destroy(&sys->outputMutex);
 
     free(sys->cmd);
     free(sys);
