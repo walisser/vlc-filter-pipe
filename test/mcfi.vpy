@@ -1,6 +1,7 @@
 import vapoursynth as vs
 #import pprint as pp
 import functools
+import psutil
 
 # get the core instance
 core = vs.get_core()
@@ -8,7 +9,6 @@ core = vs.get_core()
 # open a video file; ret is now a clip object
 source = core.raws.Source(source='/dev/stdin')
 
-# 1080p settings
 pel_         = 4
 blksize_     = 8
 search_      = 5
@@ -28,11 +28,13 @@ elif source.width >= 1024:
     pel_         = 2
     blksize_     = 8
     searchparam_ = 12
+    flow_        = True
 
 elif source.width >= 640:
-    pel_         = 4
+    pel_         = 2
     blksize_     = 8
     searchparam_ = 16
+    flow_        = True
 
 else:
     pel_         = 4
@@ -40,11 +42,23 @@ else:
     searchparam_ = 16
     flow_        = True
 
-def animator(n, clip):
-   if n % 2 == 0:
-      return clip
-   else:
-      return core.std.ShufflePlanes(clips=clip, planes=[0, 2, 1], colorfamily=vs.YUV)
+#def animator(n, clip):
+#   if n % 2 == 0:
+#      return clip
+#   else:
+#      return core.std.ShufflePlanes(clips=clip, planes=[0, 2, 1], colorfamily=vs.YUV)
+
+avgCpu=0
+maxCpu=0
+def frameInfo(n, clip):
+    global avgCpu, maxCpu
+    if n%90 == 0:
+        avgCpu = psutil.cpu_percent()
+        maxCpu = max(avgCpu, maxCpu)
+
+    return core.text.Text(clip, 'cpu=%d/%d pel=%d blk=%d srchp=%d flow=%d' %
+        (avgCpu, maxCpu, pel_, blksize_, searchparam_, flow_), alignment=9 );
+
 
 if enable_:
     super_ = core.mv.Super(source, pel=pel_, hpad=8, vpad=8)
@@ -67,10 +81,9 @@ if enable_:
         out = core.mv.FlowFPS(source, super_, back1, fwd1, num=fpsNum, den=fpsDen, mask=2)
     else:
         out = core.mv.BlockFPS(source, super_, back1, fwd1, num=fpsNum, den=fpsDen, mode=3,
-            blend=False,thres=0)
+            blend=False)
 
-    #out = core.std.FrameEval(out, functools.partial(animator, clip=out))
-
+    out = core.std.FrameEval(out, functools.partial(frameInfo, clip=out))
 
     # set the clip to be output
     out.set_output()

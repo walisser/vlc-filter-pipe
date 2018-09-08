@@ -173,12 +173,12 @@ static int writeY4mHeader(const filter_t* intf, const picture_t* pic, int fd)
         return -2;
     }
 
-    if (100 < (fpsNum / fpsDen))
-    {
-        // the ffmpeg asf demuxer might return a bogus frame rate
-        msg_Err(intf, "writeY4mHeader: vlc says fps > 100, probably bullshit");
-        return -3;
-    }
+//    if (100 < (fpsNum / fpsDen))
+//    {
+//        // the ffmpeg asf demuxer might return a bogus frame rate
+//        msg_Err(intf, "writeY4mHeader: vlc says fps > 100, probably bullshit");
+//        return -3;
+//    }
 
     char header[256];
     sprintf(header,
@@ -1019,14 +1019,14 @@ static void y4m_close(vlc_object_t* obj)
     stopProcess(intf);
 
     // cancel causes thread exit if blocked in mutex or cond wait
-    if (sys->inputThread)
+    if (sys->inputThread.handle)
     {
         vlc_cancel(sys->inputThread);
         vlc_join(sys->inputThread, NULL);
     }
 
     // output should be dead if input is
-    if (sys->outputThread)
+    if (sys->outputThread.handle)
         vlc_join(sys->outputThread, NULL);
 
     picture_fifo_Flush(sys->inputFifo, LAST_MDATE, true);
